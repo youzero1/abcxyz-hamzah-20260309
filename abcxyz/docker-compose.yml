@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  abcxyz:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '3000:3000'
+    volumes:
+      - abcxyz-data:/app/data
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - DATABASE_PATH=/app/data/abcxyz.db
+    restart: unless-stopped
+
+volumes:
+  abcxyz-data:
+    driver: local
