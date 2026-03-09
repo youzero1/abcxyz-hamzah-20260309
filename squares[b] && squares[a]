@@ -1,0 +1,666 @@
+squares[c]) {
+      return {
+        winner: squares[a] as Player,
+        isDraw: false,
+        winningLine: line,
+      };
+    }
+  }
+
+  const isDraw = squares.every((cell) => cell !== null);
+  return {
+    winner: null,
+    isDraw,
+    winningLine: null,
+  };
+}
+
+export function isBoardFull(squares: BoardState): boolean {
+  return squares.every((cell) => cell !== null);
+}
+
+export function isValidMove(squares: BoardState, index: number): boolean {
+  return index >= 0 && index < 9 && squares[index] === null;
+}
+</file>
+
+<file path="abcxyz/src/entities/User.ts">
+import 'reflect-metadata';
+import { Entity, PrimaryColumn, Column, CreateDateColumn } from 'typeorm';
+
+@Entity('users')
+export class User {
+  @PrimaryColumn('varchar', { length: 36 })
+  id!: string;
+
+  @Column('varchar', { length: 50, unique: true })
+  username!: string;
+
+  @Column('varchar', { length: 50, default: 'default' })
+  avatar!: string;
+
+  @Column('int', { default: 0 })
+  wins!: number;
+
+  @Column('int', { default: 0 })
+  losses!: number;
+
+  @Column('int', { default: 0 })
+  draws!: number;
+
+  @CreateDateColumn()
+  createdAt!: Date;
+}
+</file>
+
+<file path="abcxyz/src/entities/Game.ts">
+import 'reflect-metadata';
+import { Entity, PrimaryColumn, Column, CreateDateColumn } from 'typeorm';
+
+@Entity('games')
+export class Game {
+  @PrimaryColumn('varchar', { length: 36 })
+  id!: string;
+
+  @Column('varchar', { length: 50 })
+  playerX!: string;
+
+  @Column('varchar', { length: 50 })
+  playerO!: string;
+
+  @Column('varchar', { length: 10, nullable: true })
+  winner!: string | null;
+
+  @Column('text', { default: '[]' })
+  moves!: string;
+
+  @Column('datetime', { nullable: true })
+  completedAt!: Date | null;
+
+  @CreateDateColumn()
+  createdAt!: Date;
+}
+</file>
+
+<file path="abcxyz/src/lib/database.ts">
+import 'reflect-metadata';
+import { DataSource } from 'typeorm';
+import { User } from '@/entities/User';
+import { Game } from '@/entities/Game';
+import path from 'path';
+
+let dataSource: DataSource | null = null;
+
+export async function getDataSource(): Promise<DataSource> {
+  if (dataSource && dataSource.isInitialized) {
+    return dataSource;
+  }
+
+  const dbPath = path.join(process.cwd(), 'data', 'abcxyz.sqlite');
+
+  // Ensure data directory exists
+  const fs = await import('fs');
+  const dataDir = path.dirname(dbPath);
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+
+  dataSource = new DataSource({
+    type: 'better-sqlite3',
+    database: dbPath,
+    entities: [User, Game],
+    synchronize: true,
+    logging: false,
+  });
+
+  await dataSource.initialize();
+  return dataSource;
+}
+</file>
+
+<file path="abcxyz/src/components/Square.tsx">
+'use client';
+
+import { CellValue } from '@/utils/gameLogic';
+
+interface SquareProps {
+  value: CellValue;
+  onClick: () => void;
+  isWinning: boolean;
+  disabled: boolean;
+}
+
+export default function Square({ value, onClick, isWinning, disabled }: SquareProps) {
+  const baseClasses =
+    'w-20 h-20 sm:w-24 sm:h-24 flex items-center justify-center text-4xl sm:text-5xl font-extrabold rounded-xl border-2 transition-all duration-200 select-none';
+
+  let colorClasses: string;
+  if (isWinning) {
+    colorClasses =
+      value === 'X'
+        ? 'text-primary-700 border-primary-500 bg-primary-100 ring-2 ring-primary-400 scale-105'
+        : 'text-rose-700 border-rose-500 bg-rose-100 ring-2 ring-rose-400 scale-105';
+  } else if (value === 'X') {
+    colorClasses = 'text-primary-600 border-primary-300 bg-primary-50';
+  } else if (value === 'O') {
+    colorClasses = 'text-rose-500 border-rose-300 bg-rose-50';
+  } else {
+    colorClasses = disabled
+      ? 'border-slate-200 bg-slate-50 cursor-not-allowed'
+      : 'border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 cursor-pointer';
+  }
+
+  return (
+    <button
+      className={`${baseClasses} ${colorClasses}`}
+      onClick={onClick}
+      disabled={disabled || value !== null}
+      aria-label={value ? `Square with ${value}` : 'Empty square'}
+    >
+      {value}
+    </button>
+  );
+}
+</file>
+
+<file path="abcxyz/src/components/Board.tsx">
+'use client';
+
+import Square from '@/components/Square';
+import { BoardState } from '@/utils/gameLogic';
+
+interface BoardProps {
+  squares: BoardState;
+  winningLine: number[] | null;
+  onSquareClick: (index: number) => void;
+  disabled: boolean;
+}
+
+export default function Board({ squares, winningLine, onSquareClick, disabled }: BoardProps) {
+  return (
+    <div className="grid grid-cols-3 gap-2 sm:gap-3" role="grid" aria-label="Tic Tac Toe board">
+      {squares.map((value, index) => (
+        <Square
+          key={index}
+          value={value}
+          onClick={() => onSquareClick(index)}
+          isWinning={winningLine !== null && winningLine.includes(index)}
+          disabled={disabled}
+        />
+      ))}
+    </div>
+  );
+}
+</file>
+
+<file path="abcxyz/src/components/GameStatus.tsx">
+'use client';
+
+import { GameResult, Player } from '@/utils/gameLogic';
+
+interface GameStatusProps {
+  result: GameResult;
+  currentPlayer: Player;
+  playerX: string;
+  playerO: string;
+  gameOver: boolean;
+  isSaving: boolean;
+  gameSaved: boolean;
+  saveError: string;
+}
+
+export default function GameStatus({
+  result,
+  currentPlayer,
+  playerX,
+  playerO,
+  gameOver,
+  isSaving,
+  gameSaved,
+  saveError,
+}: GameStatusProps) {
+  let statusText: string;
+  let statusColor: string;
+
+  if (result.winner) {
+    const winnerName = result.winner === 'X' ? playerX : playerO;
+    statusText = `🎉 ${winnerName} (${result.winner}) wins!`;
+    statusColor = result.winner === 'X' ? 'text-primary-700 bg-primary-50' : 'text-rose-700 bg-rose-50';
+  } else if (result.isDraw) {
+    statusText = "🤝 It's a draw!";
+    statusColor = 'text-amber-700 bg-amber-50';
+  } else {
+    const currentName = currentPlayer === 'X' ? playerX : playerO;
+    statusText = `${currentName}'s turn (${currentPlayer})`;
+    statusColor = currentPlayer === 'X' ? 'text-primary-700 bg-primary-50' : 'text-rose-700 bg-rose-50';
+  }
+
+  return (
+    <div className="w-full max-w-md space-y-2">
+      <div className={`text-center text-lg font-bold py-3 px-4 rounded-xl ${statusColor}`}>
+        {statusText}
+      </div>
+      {gameOver && (
+        <div className="text-center text-sm">
+          {isSaving && <span className="text-slate-500">💾 Saving game...</span>}
+          {gameSaved && <span className="text-green-600">✅ Game saved!</span>}
+          {saveError && <span className="text-red-500">❌ {saveError}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+</file>
+
+<file path="abcxyz/src/components/PlayerInfo.tsx">
+'use client';
+
+interface PlayerInfoProps {
+  name: string;
+  symbol: string;
+  isActive: boolean;
+  color: 'primary' | 'rose';
+}
+
+export default function PlayerInfo({ name, symbol, isActive, color }: PlayerInfoProps) {
+  const bgColor = color === 'primary' ? 'bg-primary-50' : 'bg-rose-50';
+  const textColor = color === 'primary' ? 'text-primary-700' : 'text-rose-700';
+  const borderColor = color === 'primary' ? 'border-primary-400' : 'border-rose-400';
+  const ringColor = color === 'primary' ? 'ring-primary-300' : 'ring-rose-300';
+
+  return (
+    <div
+      className={`flex flex-col items-center gap-1 px-4 py-3 rounded-xl border-2 transition-all duration-300 ${bgColor} ${textColor} ${
+        isActive ? `${borderColor} ring-2 ${ringColor} scale-105` : 'border-transparent'
+      }`}
+    >
+      <span className="text-2xl font-extrabold">{symbol}</span>
+      <span className="text-sm font-semibold truncate max-w-[80px]">{name}</span>
+      {isActive && <span className="text-xs opacity-70">Playing...</span>}
+    </div>
+  );
+}
+</file>
+
+<file path="abcxyz/src/components/ShareButton.tsx">
+'use client';
+
+import { useState } from 'react';
+
+interface ShareButtonProps {
+  playerX: string;
+  playerO: string;
+  winner: string | null;
+  moveCount: number;
+}
+
+export default function ShareButton({ playerX, playerO, winner, moveCount }: ShareButtonProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleShare = async () => {
+    let resultText: string;
+    if (winner === 'X') {
+      resultText = `${playerX} (X) beat ${playerO} (O)`;
+    } else if (winner === 'O') {
+      resultText = `${playerO} (O) beat ${playerX} (X)`;
+    } else {
+      resultText = `${playerX} (X) and ${playerO} (O) drew`;
+    }
+
+    const shareText = `🎮 abcxyz Tic Tac Toe\n${resultText} in ${moveCount} moves!\n\nPlay at: ${window.location.origin}`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: 'abcxyz - Tic Tac Toe Result',
+          text: shareText,
+        });
+      } else {
+        await navigator.clipboard.writeText(shareText);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    } catch {
+      // User cancelled share or clipboard failed
+      try {
+        await navigator.clipboard.writeText(shareText);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+        // Clipboard also failed, silently ignore
+      }
+    }
+  };
+
+  return (
+    <button onClick={handleShare} className="btn-secondary">
+      {copied ? '✅ Copied!' : '📤 Share Result'}
+    </button>
+  );
+}
+</file>
+
+<file path="abcxyz/src/components/Navbar.tsx">
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+
+export default function Navbar() {
+  const pathname = usePathname();
+
+  const linkClasses = (href: string) => {
+    const isActive = pathname === href;
+    return `font-semibold text-sm sm:text-base transition-colors duration-200 px-3 py-2 rounded-lg ${
+      isActive
+        ? 'text-primary-700 bg-primary-50'
+        : 'text-slate-600 hover:text-primary-600 hover:bg-slate-50'
+    }`;
+  };
+
+  return (
+    <nav className="bg-white shadow-sm border-b border-slate-200 sticky top-0 z-50">
+      <div className="container mx-auto px-4 max-w-5xl">
+        <div className="flex items-center justify-between h-14">
+          <Link href="/" className="text-xl font-extrabold text-slate-800 tracking-tight">
+            abc<span className="text-primary-600">xyz</span>
+          </Link>
+          <div className="flex items-center gap-1">
+            <Link href="/" className={linkClasses('/')}>
+              🏠 Home
+            </Link>
+            <Link href="/game" className={linkClasses('/game')}>
+              🎮 Play
+            </Link>
+            <Link href="/leaderboard" className={linkClasses('/leaderboard')}>
+              🏆 Ranks
+            </Link>
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
+}
+</file>
+
+<file path="abcxyz/src/components/Leaderboard.tsx">
+'use client';
+
+import { useState, useEffect } from 'react';
+
+interface LeaderboardEntry {
+  id: string;
+  username: string;
+  avatar: string;
+  wins: number;
+  losses: number;
+  draws: number;
+  totalGames: number;
+  winRate: number;
+}
+
+export default function Leaderboard() {
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const fetchLeaderboard = async () => {
+      try {
+        const response = await fetch('/api/leaderboard');
+        if (!response.ok) {
+          throw new Error('Failed to fetch leaderboard');
+        }
+        const data = await response.json();
+        setEntries(data);
+      } catch {
+        setError('Failed to load leaderboard');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchLeaderboard();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="card w-full max-w-2xl text-center py-12">
+        <div className="text-4xl mb-4 animate-bounce">⏳</div>
+        <p className="text-slate-500">Loading leaderboard...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="card w-full max-w-2xl text-center py-12">
+        <div className="text-4xl mb-4">😵</div>
+        <p className="text-red-500">{error}</p>
+      </div>
+    );
+  }
+
+  if (entries.length === 0) {
+    return (
+      <div className="card w-full max-w-2xl text-center py-12">
+        <div className="text-4xl mb-4">🎮</div>
+        <p className="text-slate-500">No games played yet. Be the first!</p>
+      </div>
+    );
+  }
+
+  const getMedal = (index: number): string => {
+    if (index === 0) return '🥇';
+    if (index === 1) return '🥈';
+    if (index === 2) return '🥉';
+    return `#${index + 1}`;
+  };
+
+  return (
+    <div className="card w-full max-w-2xl overflow-hidden p-0">
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200">
+              <th className="text-left py-3 px-4 text-sm font-bold text-slate-600">Rank</th>
+              <th className="text-left py-3 px-4 text-sm font-bold text-slate-600">Player</th>
+              <th className="text-center py-3 px-4 text-sm font-bold text-slate-600">W</th>
+              <th className="text-center py-3 px-4 text-sm font-bold text-slate-600">L</th>
+              <th className="text-center py-3 px-4 text-sm font-bold text-slate-600">D</th>
+              <th className="text-center py-3 px-4 text-sm font-bold text-slate-600">Games</th>
+              <th className="text-center py-3 px-4 text-sm font-bold text-slate-600">Win %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry, index) => (
+              <tr
+                key={entry.id}
+                className={`border-b border-slate-100 transition-colors hover:bg-slate-50 ${
+                  index < 3 ? 'bg-amber-50/30' : ''
+                }`}
+              >
+                <td className="py-3 px-4 text-lg">{getMedal(index)}</td>
+                <td className="py-3 px-4 font-semibold text-slate-800">{entry.username}</td>
+                <td className="py-3 px-4 text-center text-green-600 font-bold">{entry.wins}</td>
+                <td className="py-3 px-4 text-center text-red-500 font-bold">{entry.losses}</td>
+                <td className="py-3 px-4 text-center text-amber-600 font-bold">{entry.draws}</td>
+                <td className="py-3 px-4 text-center text-slate-600">{entry.totalGames}</td>
+                <td className="py-3 px-4 text-center">
+                  <span
+                    className={`inline-block px-2 py-0.5 rounded-full text-sm font-bold ${
+                      entry.winRate >= 60
+                        ? 'bg-green-100 text-green-700'
+                        : entry.winRate >= 40
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-red-100 text-red-700'
+                    }`}
+                  >
+                    {entry.winRate}%
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="abcxyz/src/app/game/page.tsx">
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import Board from '@/components/Board';
+import GameStatus from '@/components/GameStatus';
+import PlayerInfo from '@/components/PlayerInfo';
+import ShareButton from '@/components/ShareButton';
+import { calculateResult, getInitialBoard, BoardState, Player } from '@/utils/gameLogic';
+
+interface MoveRecord {
+  index: number;
+  player: Player;
+}
+
+export default function GamePage() {
+  const [squares, setSquares] = useState<BoardState>(getInitialBoard());
+  const [currentPlayer, setCurrentPlayer] = useState<Player>('X');
+  const [moveHistory, setMoveHistory] = useState<MoveRecord[]>([]);
+  const [playerX, setPlayerX] = useState('');
+  const [playerO, setPlayerO] = useState('');
+  const [gameStarted, setGameStarted] = useState(false);
+  const [gameSaved, setGameSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const result = calculateResult(squares);
+  const gameOver = result.winner !== null || result.isDraw;
+
+  const saveGame = useCallback(async () => {
+    if (!gameStarted || gameSaved || isSaving) return;
+    setIsSaving(true);
+    setSaveError('');
+    try {
+      const winnerValue = result.winner ? result.winner : result.isDraw ? 'draw' : null;
+      const response = await fetch('/api/games', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerX,
+          playerO,
+          winner: winnerValue,
+          moves: moveHistory,
+        }),
+      });
+      if (response.ok) {
+        setGameSaved(true);
+      } else {
+        const data = await response.json();
+        setSaveError(data.error || 'Failed to save game');
+      }
+    } catch {
+      setSaveError('Network error while saving game');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [gameStarted, gameSaved, isSaving, result, playerX, playerO, moveHistory]);
+
+  useEffect(() => {
+    if (gameOver && gameStarted && !gameSaved) {
+      saveGame();
+    }
+  }, [gameOver, gameStarted, gameSaved, saveGame]);
+
+  const handleSquareClick = (index: number) => {
+    if (!gameStarted || squares[index] || gameOver) return;
+
+    const newSquares = [...squares];
+    newSquares[index] = currentPlayer;
+    const newMove: MoveRecord = { index, player: currentPlayer };
+
+    setSquares(newSquares);
+    setMoveHistory((prev) => [...prev, newMove]);
+    setCurrentPlayer(currentPlayer === 'X' ? 'O' : 'X');
+  };
+
+  const handleStartGame = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!playerX.trim() || !playerO.trim()) return;
+    setGameStarted(true);
+  };
+
+  const handleReset = () => {
+    setSquares(getInitialBoard());
+    setCurrentPlayer('X');
+    setMoveHistory([]);
+    setGameSaved(false);
+    setSaveError('');
+    setIsSaving(false);
+    setGameStarted(false);
+    setPlayerX('');
+    setPlayerO('');
+  };
+
+  const handlePlayAgain = () => {
+    setSquares(getInitialBoard());
+    setCurrentPlayer('X');
+    setMoveHistory([]);
+    setGameSaved(false);
+    setSaveError('');
+    setIsSaving(false);
+  };
+
+  if (!gameStarted) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[70vh]">
+        <div className="card w-full max-w-md">
+          <h2 className="text-2xl font-bold text-slate-800 mb-6 text-center">🎮 New Game</h2>
+          <form onSubmit={handleStartGame} className="space-y-4">
+            <div>
+              <label htmlFor="playerX" className="block text-sm font-semibold text-slate-600 mb-1">
+                Player X Name
+              </label>
+              <input
+                id="playerX"
+                type="text"
+                value={playerX}
+                onChange={(e) => setPlayerX(e.target.value)}
+                placeholder="Enter Player X name"
+                maxLength={20}
+                className="w-full border-2 border-slate-200 rounded-lg px-3 py-2 text-slate-700 focus:outline-none focus:border-primary-400 transition-colors"
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="playerO" className="block text-sm font-semibold text-slate-600 mb-1">
+                Player O Name
+              </label>
+              <input
+                id="playerO"
+                type="text"
+                value={playerO}
+                onChange={(e) => setPlayerO(e.target.value)}
+                placeholder="Enter Player O name"
+                maxLength={20}
+                className="w-full border-2 border-slate-200 rounded-lg px-3 py-2 text-slate-700 focus:outline-none focus:border-primary-400 transition-colors"
+                required
+              />
+            </div>
+            <button type="submit" className="btn-primary w-full py-3 text-lg">
+              Start Game
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-6">
+      <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">
+        abc<span className="text-primary-600">xyz</span>
+      </h2>
+
+      <div className="flex gap-
